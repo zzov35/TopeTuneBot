@@ -17,9 +17,8 @@ from db import (
     create_model,
     get_brand_and_model_names,
     delete_product_by_id,
+    get_products_for_brand_model,
 )
-
-
 
 # ================== /start ================== #
 
@@ -30,8 +29,8 @@ def handle_start(message):
 
     text = (
         "Привет! Я бот-помощник по тюнингу авто 🚗\n\n"
-        "Я смогу:\n"
-        "• подобрать обвесы и диски под твою машину\n"
+        "Я могу:\n"
+        "• подобрать тюнинг под твою машину\n"
         "• показать, как это будет выглядеть (ИИ-визуализация)\n"
         "• передать твой запрос менеджеру\n\n"
         "Выбери, с чего начнём:"
@@ -46,6 +45,22 @@ def handle_menu_callback(call):
     chat_id = call.message.chat.id
     data = call.data
     step = user_state.get(chat_id, {}).get("step")
+
+    # Лог, чтобы видеть, что приходит от кнопок
+    print(f"[CALLBACK] chat={chat_id}, data={data}")
+
+    # ----- назад к выбору бренда (пользователь) ----- #
+    if data == "back_brands":
+        user_state[chat_id] = {"step": "catalog_brand"}
+        text = "Выбери марку автомобиля:"
+        bot.edit_message_text(
+            text,
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            reply_markup=catalog_brand_keyboard(),
+        )
+        return
+
 
     # ----- КАТАЛОГ (пользователь) ----- #
     if data == "menu_catalog":
@@ -113,33 +128,86 @@ def handle_menu_callback(call):
             "model_bmw_4": ("BMW", "4 Series"),
             "model_bmw_5": ("BMW", "5 Series"),
         }
-        brand, model = mapping.get(data, ("?", "?"))
+
+        if data not in mapping:
+            bot.answer_callback_query(call.id, "Неизвестная модель.", show_alert=True)
+            return
+
+        brand, model = mapping[data]
         user_state[chat_id] = {"step": "catalog_done", "brand": brand, "model": model}
 
-        text = (
-            f"✅ Ты выбрал: *{brand} {model}*.\n\n"
-            "На следующем шаге здесь будет список комплектов тюнинга, "
-            "которые подходят под эту модель.\n\n"
-            "Пока это демо, но структура уже готова 👍"
-        )
-        bot.edit_message_text(
-            text,
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            parse_mode="Markdown",
-            reply_markup=back_keyboard(),
-        )
+        # достаём товары из БД
+        products = get_products_for_brand_model(brand, model)
 
-    # ----- назад к выбору бренда (пользователь) ----- #
-    elif data == "back_brands":
-        user_state[chat_id] = {"step": "catalog_brand"}
-        text = "Выбери марку автомобиля:"
-        bot.edit_message_text(
-            text,
-            chat_id=chat_id,
-            message_id=call.message.message_id,
-            reply_markup=catalog_brand_keyboard(),
-        )
+        # --- если товаров нет --- #
+        if not products:
+            text = (
+                f"Ты выбрал: *{brand} {model}*.\n\n"
+                "К сожалению, у нас пока нет компонентов для тюнинга этой модели.\n\n"
+                "Вы можете написать нашему менеджеру, и он постарается подобрать варианты."
+            )
+            bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=back_keyboard(),
+            )
+
+        # --- если товары есть --- #
+        else:
+            header = (
+                f"✅ Ты выбрал: *{brand} {model}*.\n\n"
+                f"Вот что у нас есть для этой модели (всего {len(products)} шт.):"
+            )
+            # здесь БЕЗ клавиатуры, просто редактируем текст выбора
+            bot.edit_message_text(
+                header,
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                parse_mode="Markdown",
+            )
+
+            # отправляем каждый товар отдельным сообщением
+            for p in products:
+                name = getattr(p, "name", "Без названия")
+                years = getattr(p, "years", None)
+                desc = getattr(p, "description", None)
+                photo_id = getattr(p, "photo_file_id", None)
+                pid = getattr(p, "id", None)
+
+                caption_lines = [f"*{name}*"]
+                if years:
+                    caption_lines.append(f"_Годы: {years}_")
+                if desc:
+                    caption_lines.append(desc)
+                if pid is not None:
+                    caption_lines.append(f"`id: {pid}`")
+
+                caption = "\n".join(caption_lines)
+
+                if photo_id:
+                    bot.send_photo(
+                        chat_id,
+                        photo_id,
+                        caption=caption,
+                        parse_mode="Markdown",
+                    )
+                else:
+                    bot.send_message(
+                        chat_id,
+                        caption,
+                        parse_mode="Markdown",
+                    )
+
+            # финальное сообщение после каталога
+            bot.send_message(
+                chat_id,
+                "Это все товары, подходящие к этой марке и модели.",
+                reply_markup=back_keyboard(),
+            )
+
+
 
     # ----- ГЛАВНОЕ МЕНЮ ----- #
     elif data == "back_main":
@@ -174,7 +242,6 @@ def handle_menu_callback(call):
 
     # ----- СВЯЗАТЬСЯ С МЕНЕДЖЕРОМ (пользователь) ----- #
     elif data == "menu_manager":
-        # включаем режим поддержки
         user_state[chat_id] = {"step": "support"}
         text = (
             "Если у вас возникла проблема или вы не можете найти тюнинг на своё авто,\n"
@@ -311,8 +378,6 @@ def handle_menu_callback(call):
             parse_mode="Markdown",
         )
 
-    # ====== АДМИН: выбор модели через «Добавить модель» обрабатывается в message-хендлере ====== #
-
     bot.answer_callback_query(call.id)
 
 
@@ -400,6 +465,7 @@ def handle_manager_reply(message):
         message_id=message.message_id,
     )
 
+
 # ============ АДМИН: удаление товара по ID ============ #
 
 @bot.message_handler(commands=["delete_product"])
@@ -418,8 +484,9 @@ def handle_delete_product_command(message):
         parse_mode="Markdown",
     )
 
+
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "delete_product_id")
-def admin_delete_product_by_id(message):
+def admin_delete_product_by_id_handler(message):
     chat_id = message.chat.id
     text = message.text.strip()
 
@@ -464,47 +531,27 @@ def handle_add_product_command(message):
 
 
 # --- шаг 1: название --- #
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "add_product_years")
-def admin_add_product_years(message):
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "add_product_name")
+def admin_add_product_name(message):
     chat_id = message.chat.id
-    years = message.text.strip()
-    if not years:
-        bot.reply_to(message, "Строка с годами не может быть пустой. Введите ещё раз.")
+    name = message.text.strip()
+
+    if not name:
+        bot.reply_to(message, "Название не может быть пустым. Введите ещё раз.")
         return
 
-    state = user_state.get(chat_id, {})
-    state["years"] = years
-    state["step"] = "add_product_description"
+    state = {
+        "step": "add_product_brand",
+        "name": name,
+    }
     user_state[chat_id] = state
 
+    brands = get_all_brands()
     bot.reply_to(
         message,
-        "Окей 👍\nТеперь введите *описание товара*.\n\n"
-        "Например: `Комплект обвеса AMG-style, бампер, пороги, диффузор`.\n\n"
-        "Если не хотите добавлять описание — напишите `-`.",
+        f"Название: *{name}*\n\nТеперь выберите марку или добавьте новую:",
         parse_mode="Markdown",
-    )
-
-
-@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "add_product_description")
-def admin_add_product_description(message):
-    chat_id = message.chat.id
-    desc = message.text.strip()
-
-    # '-' считаем как отсутствие описания
-    if desc == "-":
-        desc = None
-
-    state = user_state.get(chat_id, {})
-    state["description"] = desc
-    state["step"] = "add_product_photo"
-    user_state[chat_id] = state
-
-    bot.reply_to(
-        message,
-        "Описание сохранено.\nТеперь отправьте *фото товара* одним сообщением "
-        "(как обычное фото, не как файл).",
-        parse_mode="Markdown",
+        reply_markup=admin_brands_keyboard(brands),
     )
 
 
@@ -533,7 +580,7 @@ def admin_add_product_brand_add(message):
     )
 
 
-# --- шаг 2б: ввод новой модели --- #
+# --- шаг 2б: ввод новой модели (через текст) --- #
 @bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "add_product_model_add")
 def admin_add_product_model_add(message):
     chat_id = message.chat.id
@@ -575,18 +622,41 @@ def admin_add_product_years(message):
 
     state = user_state.get(chat_id, {})
     state["years"] = years
+    state["step"] = "add_product_description"
+    user_state[chat_id] = state
+
+    bot.reply_to(
+        message,
+        "Окей 👍\nТеперь введите *описание товара*.\n\n"
+        "Например: `Комплект обвеса AMG-style, бампер, пороги, диффузор`.\n\n"
+        "Если не хотите добавлять описание — напишите `-`.",
+        parse_mode="Markdown",
+    )
+
+
+# --- шаг 4: описание --- #
+@bot.message_handler(func=lambda m: user_state.get(m.chat.id, {}).get("step") == "add_product_description")
+def admin_add_product_description(message):
+    chat_id = message.chat.id
+    desc = message.text.strip()
+
+    if desc == "-":
+        desc = None
+
+    state = user_state.get(chat_id, {})
+    state["description"] = desc
     state["step"] = "add_product_photo"
     user_state[chat_id] = state
 
     bot.reply_to(
         message,
-        "Принято 👍\nТеперь отправьте *фото товара* одним сообщением "
+        "Описание сохранено.\nТеперь отправьте *фото товара* одним сообщением "
         "(как обычное фото, не как файл).",
         parse_mode="Markdown",
     )
 
 
-# --- шаг 4: фото --- #
+# --- шаг 5: фото --- #
 @bot.message_handler(
     content_types=["photo"],
     func=lambda m: user_state.get(m.chat.id, {}).get("step") == "add_product_photo",
@@ -606,7 +676,6 @@ def admin_add_product_photo(message):
     years = state.get("years")
     description = state.get("description")
 
-    # получаем названия марки и моделей
     model_names = []
     brand_name = None
     for mid in model_ids:
@@ -647,4 +716,3 @@ def admin_add_product_photo(message):
         f"{extra_desc}",
         parse_mode="Markdown",
     )
-

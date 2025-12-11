@@ -25,22 +25,26 @@ def catalog_brand_keyboard() -> InlineKeyboardMarkup:
     return markup
 
 
-def catalog_model_keyboard(brand: str) -> InlineKeyboardMarkup:
-    """Выбор модели (для пользователя)."""
-    markup = InlineKeyboardMarkup()
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-    if brand == "Mercedes":
-        markup.row(InlineKeyboardButton("CLA", callback_data="model_mercedes_cla"))
-        markup.row(InlineKeyboardButton("E-Class", callback_data="model_mercedes_e"))
-        markup.row(InlineKeyboardButton("C-Class", callback_data="model_mercedes_c"))
-    elif brand == "BMW":
-        markup.row(InlineKeyboardButton("3 Series", callback_data="model_bmw_3"))
-        markup.row(InlineKeyboardButton("4 Series", callback_data="model_bmw_4"))
-        markup.row(InlineKeyboardButton("5 Series", callback_data="model_bmw_5"))
+def catalog_model_keyboard(brand_name: str):
+    kb = InlineKeyboardMarkup()
 
-    markup.row(InlineKeyboardButton("⬅️ Выбрать другую марку", callback_data="back_brands"))
-    markup.row(InlineKeyboardButton("⬅️ В главное меню", callback_data="back_main"))
-    return markup
+    if brand_name == "Mercedes":
+        kb.add(InlineKeyboardButton("CLA",      callback_data="model_mercedes_cla"))
+        kb.add(InlineKeyboardButton("E-Class",  callback_data="model_mercedes_e"))
+        kb.add(InlineKeyboardButton("C-Class",  callback_data="model_mercedes_c"))
+
+    elif brand_name == "BMW":
+        kb.add(InlineKeyboardButton("3 Series", callback_data="model_bmw_3"))
+        kb.add(InlineKeyboardButton("4 Series", callback_data="model_bmw_4"))
+        kb.add(InlineKeyboardButton("5 Series", callback_data="model_bmw_5"))
+
+    # ВАЖНО: вот здесь строго back_brands
+    kb.add(InlineKeyboardButton("⬅ Выбрать другую марку", callback_data="back_brands"))
+    kb.add(InlineKeyboardButton("⬅ В главное меню",       callback_data="back_main"))
+
+    return kb
 
 
 # ---------- АДМИНСКИЕ КЛАВИАТУРЫ ----------

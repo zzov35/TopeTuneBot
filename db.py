@@ -1,3 +1,4 @@
+from typing import List
 from sqlalchemy import (
     create_engine,
     Column,
@@ -300,6 +301,39 @@ def delete_product_by_id(product_id: int) -> bool:
         session.delete(product)
         session.commit()
         return True
+    finally:
+        session.close()
+
+def get_products_for_brand_model(brand_name: str, model_name: str) -> List[Product]:
+    """
+    Возвращает список товаров для конкретной марки и модели.
+    Если марка или модель не найдены, возвращает пустой список.
+    """
+    session = SessionLocal()
+    try:
+        # ищем марку
+        brand = session.query(Brand).filter(Brand.name == brand_name).first()
+        if not brand:
+            return []
+
+        # ВАЖНО: здесь используем CarModel, а не Model
+        model = (
+            session.query(CarModel)
+            .filter(CarModel.brand_id == brand.id, CarModel.name == model_name)
+            .first()
+        )
+        if not model:
+            return []
+
+        # товары, привязанные к этой модели
+        products = (
+            session.query(Product)
+            .join(ProductFitment, ProductFitment.product_id == Product.id)
+            .filter(ProductFitment.car_model_id == model.id)
+            .all()
+        )
+
+        return products
     finally:
         session.close()
 
