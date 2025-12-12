@@ -106,9 +106,9 @@ def seed_demo_data():
         e_class = CarModel(name="E-Class", brand=mercedes)
         c_class = CarModel(name="C-Class", brand=mercedes)
 
-        series_3 = CarModel(name="3 Series", brand=bmw)
-        series_4 = CarModel(name="4 Series", brand=bmw)
-        series_5 = CarModel(name="5 Series", brand=bmw)
+        series_3 = CarModel(name="3-Series", brand=bmw)
+        series_4 = CarModel(name="4-Series", brand=bmw)
+        series_5 = CarModel(name="5-Series", brand=bmw)
 
         session.add_all([cla, e_class, c_class, series_3, series_4, series_5])
 

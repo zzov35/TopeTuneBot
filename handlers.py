@@ -1,3 +1,12 @@
+from vision_ai import predict_car
+
+from keys import confirm_car_keyboard
+
+from telebot import types
+
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from keys import main_menu_keyboard
 from config import bot, MANAGER_CHAT_ID
 from keys import (
     main_menu_keyboard,
@@ -19,6 +28,12 @@ from db import (
     delete_product_by_id,
     get_products_for_brand_model,
 )
+PHOTO_CALLBACK_DATA = "menu_photo"  # КОД КНОПКИ "Подбор по фото"
+photo_mode_users = set()
+
+def dbg(msg: str):
+    print(f"[DEBUG] {msg}", flush=True)
+
 
 # ================== /start ================== #
 
@@ -40,7 +55,54 @@ def handle_start(message):
 
 # ============ ОБРАБОТКА INLINE-КНОПОК ============ #
 
+# ----- Подтверждение авто после распознавания -----
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_car:"))
+def handle_confirm_car(call):
+    chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id)
+
+    # callback_data: "confirm_car:BMW:5 Series"
+    try:
+        _, brand, model = call.data.split(":", 2)
+    except ValueError:
+        bot.send_message(
+            chat_id,
+            "Не получилось прочитать данные автомобиля. Попробуйте ещё раз или выберите авто через каталог.",
+            reply_markup=back_keyboard(),
+        )
+        return
+
+    # Берём товары из БД
+    products = get_products_for_brand_model(brand, model)
+
+    # Если ничего не нашли
+    if not products:
+        bot.send_message(
+            chat_id,
+            f"К сожалению, для {brand} {model} пока нет товаров в базе.\n\n"
+            "Попробуйте другое фото или выберите автомобиль вручную через каталог.",
+            reply_markup=back_keyboard(),
+        )
+        return
+
+    # Формируем список товаров
+    lines = [f"🔥 Товары для {brand} {model}:\n"]
+    for p in products:
+        # p.name, p.description — как у тебя в модели/ORM
+        desc = getattr(p, "description", None) or "без описания"
+        lines.append(f"• {p.name} — {desc}")
+
+    lines.append("\nЭто все товары, подходящие к этой марке и модели.")
+
+    bot.send_message(
+        chat_id,
+        "\n".join(lines),
+        reply_markup=back_keyboard(),
+    )
+
 @bot.callback_query_handler(func=lambda call: True)
+
 def handle_menu_callback(call):
     chat_id = call.message.chat.id
     data = call.data
@@ -124,9 +186,9 @@ def handle_menu_callback(call):
             "model_mercedes_cla": ("Mercedes", "CLA"),
             "model_mercedes_e": ("Mercedes", "E-Class"),
             "model_mercedes_c": ("Mercedes", "C-Class"),
-            "model_bmw_3": ("BMW", "3 Series"),
-            "model_bmw_4": ("BMW", "4 Series"),
-            "model_bmw_5": ("BMW", "5 Series"),
+            "model_bmw_3": ("BMW", "3-Series"),
+            "model_bmw_4": ("BMW", "4-Series"),
+            "model_bmw_5": ("BMW", "5-Series"),
         }
 
         if data not in mapping:
@@ -225,13 +287,15 @@ def handle_menu_callback(call):
 
     # ----- ПОДБОР ПО ФОТО (заглушка) ----- #
     elif data == "menu_photo":
-        user_state[chat_id] = {"step": "photo_demo"}
+        # пользователь выбрал подбор по фото
+        user_state[chat_id] = {"step": "photo_recognition"}
+
         text = (
-            "📸 *Подбор по фото*\n\n"
-            "Отправь мне фото своей машины (желательно сбоку или 3/4 спереди), "
-            "и я помогу подобрать тюнинг.\n\n"
-            "_Пока это демо-режим: просто пришли фото, а дальше допилим логику._"
+            "📷 *Подбор по фото*\n\n"
+            "Отправьте фото своего автомобиля (желательно сбоку или 3/4 спереди), "
+            "и я попробую определить марку и модель и подобрать тюнинг из каталога.\n\n"
         )
+
         bot.edit_message_text(
             text,
             chat_id=chat_id,
@@ -240,12 +304,13 @@ def handle_menu_callback(call):
             reply_markup=back_keyboard(),
         )
 
+
     # ----- СВЯЗАТЬСЯ С МЕНЕДЖЕРОМ (пользователь) ----- #
     elif data == "menu_manager":
         user_state[chat_id] = {"step": "support"}
         text = (
-            "Если у вас возникла проблема или вы не можете найти тюнинг на своё авто,\n"
-            "просто напишите сюда ваш вопрос и прикрепите фото/видео.\n\n"
+            "Если у вас возникла проблема или вы не можете найти тюнинг на своё авто,просто напишите сюда ваш вопрос и прикрепите фото/видео."
+            "\n\n"
             "Бот перешлёт всё нашему менеджеру, и он ответит вам здесь.\n\n"
             "Когда закончите, можете вернуться в главное меню."
         )
@@ -378,8 +443,90 @@ def handle_menu_callback(call):
             parse_mode="Markdown",
         )
 
+
+
+    # ----- Пользователь отказался -----
+    elif call.data == "reject_car":
+        chat_id = call.message.chat.id
+        bot.edit_message_text(
+            "😅 Хорошо, попробуйте отправить другое фото.\n"
+            "Если не удаётся — можете выбрать авто вручную через каталог:",
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            reply_markup=InlineKeyboardMarkup().add(
+                InlineKeyboardButton("📖 Каталог", callback_data="menu_catalog")
+            )
+        )
+        user_state[chat_id] = {"step": "photo_recognition"}
+
     bot.answer_callback_query(call.id)
 
+
+@bot.callback_query_handler(func=lambda call: call.data == "reject_car")
+def handle_reject_car(call):
+    chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id)
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📸 Отправить другое фото", callback_data="menu_photo"))
+    markup.add(types.InlineKeyboardButton("⬅️ В главное меню", callback_data="menu_main"))
+
+    bot.edit_message_text(
+        "Хорошо! Отправьте другое фото (лучше сбоку или под углом 3/4) "
+        "или вернитесь в главное меню:",
+        chat_id=chat_id,
+        message_id=call.message.message_id,
+        reply_markup=markup,
+    )
+
+@bot.message_handler(
+    content_types=['photo'],
+    func=lambda m: user_state.get(m.chat.id, {}).get("step") == "photo_recognition"
+)
+def handle_photo_message(message):
+    chat_id = message.chat.id
+
+    # Проверяем, что пользователь сейчас в режиме распознавания
+    user_step = user_state.get(chat_id, {}).get("step")
+    if user_step != "photo_recognition":
+        return  # Игнорируем фото, если не в нужном шаге
+
+    try:
+        # Берём самое большое фото
+        file_id = message.photo[-1].file_id
+        file_info = bot.get_file(file_id)
+        image_bytes = bot.download_file(file_info.file_path)
+
+        # Отправляем фото в ИИ-модель
+        brand, model_name, conf = predict_car(image_bytes)
+
+        if not brand or not model_name:
+            bot.send_message(
+                chat_id,
+                "😔 Не удалось распознать марку и модель автомобиля.\n"
+                "Попробуйте другое фото или выберите авто вручную через каталог."
+            )
+            return
+
+        # Отправляем пользователю результат
+        bot.send_message(
+            chat_id,
+            f"🚗 Похоже, это *{brand} {model_name}* (уверенность: {conf:.0%}).",
+            parse_mode="Markdown"
+        )
+
+        # Здесь можно вызвать функцию показа товаров:
+        # show_products_for_car(chat_id, brand, model_name)
+
+        bot.send_message(
+            chat_id,
+            "Подтвердите, пожалуйста, что это ваш автомобиль:",
+            reply_markup=confirm_car_keyboard(brand, model_name)
+        )
+
+    except Exception as e:
+        print(f"[handle_photo_message] Ошибка: {e}")
+        bot.send_message(chat_id, "❌ Ошибка при обработке фото. Попробуйте снова.")
 
 # ============ КАТАЛОГ: ручной ввод марки/модели ============ #
 
@@ -647,6 +794,7 @@ def admin_add_product_description(message):
     state["description"] = desc
     state["step"] = "add_product_photo"
     user_state[chat_id] = state
+    dbg(f"[ADD_PRODUCT] chat {chat_id}: step set to add_product_photo, state={state}")
 
     bot.reply_to(
         message,
@@ -664,9 +812,19 @@ def admin_add_product_description(message):
 def admin_add_product_photo(message):
     chat_id = message.chat.id
     state = user_state.get(chat_id)
+
+    dbg(f"[PHOTO_ADD] got photo from chat={chat_id}, state={state}")
+
     if not state:
         return
 
+    if state.get("step") != "add_product_photo":
+        dbg(f"[PHOTO_ADD] chat {chat_id}: step != 'add_product_photo', ignore")
+        return
+
+    dbg(f"[PHOTO_ADD] chat {chat_id}: start saving product to DB")
+
+    # самое большое фото из сообщения
     photo = message.photo[-1]
     file_id = photo.file_id
 
@@ -676,6 +834,7 @@ def admin_add_product_photo(message):
     years = state.get("years")
     description = state.get("description")
 
+    # вытаскиваем нормальные имена марки и моделей
     model_names = []
     brand_name = None
     for mid in model_ids:
@@ -693,6 +852,7 @@ def admin_add_product_photo(message):
         user_state.pop(chat_id, None)
         return
 
+    # сохраняем товар в БД
     product_id = add_product_with_fitments(
         name=name,
         brand_name=brand_name,
@@ -702,10 +862,14 @@ def admin_add_product_photo(message):
         description=description,
     )
 
+    dbg(f"[PHOTO_ADD] chat {chat_id}: product saved, id={product_id}")
+
+    # очищаем состояние
     user_state.pop(chat_id, None)
 
     extra_desc = f"\nОписание: {description}" if description else ""
 
+    # отвечаем менеджеру
     bot.reply_to(
         message,
         f"✅ Товар *{name}* добавлен в каталог.\n"
@@ -716,3 +880,4 @@ def admin_add_product_photo(message):
         f"{extra_desc}",
         parse_mode="Markdown",
     )
+

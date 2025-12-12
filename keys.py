@@ -1,5 +1,13 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+def confirm_car_keyboard(brand, model):
+    kb = InlineKeyboardMarkup()
+    kb.add(
+        InlineKeyboardButton("✅ Да, всё верно", callback_data=f"confirm_car:{brand}:{model}"),
+        InlineKeyboardButton("❌ Нет, другое авто", callback_data="reject_car"),
+    )
+    return kb
+
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
@@ -36,9 +44,9 @@ def catalog_model_keyboard(brand_name: str):
         kb.add(InlineKeyboardButton("C-Class",  callback_data="model_mercedes_c"))
 
     elif brand_name == "BMW":
-        kb.add(InlineKeyboardButton("3 Series", callback_data="model_bmw_3"))
-        kb.add(InlineKeyboardButton("4 Series", callback_data="model_bmw_4"))
-        kb.add(InlineKeyboardButton("5 Series", callback_data="model_bmw_5"))
+        kb.add(InlineKeyboardButton("3-Series", callback_data="model_bmw_3"))
+        kb.add(InlineKeyboardButton("4-Series", callback_data="model_bmw_4"))
+        kb.add(InlineKeyboardButton("5-Series", callback_data="model_bmw_5"))
 
     # ВАЖНО: вот здесь строго back_brands
     kb.add(InlineKeyboardButton("⬅ Выбрать другую марку", callback_data="back_brands"))
