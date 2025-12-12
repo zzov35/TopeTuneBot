@@ -86,18 +86,47 @@ def handle_confirm_car(call):
         )
         return
 
-    # Формируем список товаров
-    lines = [f"🔥 Товары для {brand} {model}:\n"]
-    for p in products:
-        # p.name, p.description — как у тебя в модели/ORM
-        desc = getattr(p, "description", None) or "без описания"
-        lines.append(f"• {p.name} — {desc}")
+        # Показываем товары КАК В КАТАЛОГЕ: с фото (если есть) + текст
+    bot.send_message(
+        chat_id,
+        f"🔥 Товары для {brand} {model}:",
+        reply_markup=back_keyboard(),
+    )
 
-    lines.append("\nЭто все товары, подходящие к этой марке и модели.")
+    for p in products:
+        name = getattr(p, "name", "Без названия")
+        years = getattr(p, "years", None)
+        desc = getattr(p, "description", None)
+        photo_id = getattr(p, "photo_file_id", None)
+        pid = getattr(p, "id", None)
+
+        caption_lines = [f"*{name}*"]
+        if years:
+            caption_lines.append(f"_Годы: {years}_")
+        if desc:
+            caption_lines.append(desc)
+        if pid is not None:
+            caption_lines.append(f"`id: {pid}`")
+
+        caption = "\n".join(caption_lines)
+
+        if photo_id:
+            bot.send_photo(
+                chat_id,
+                photo_id,
+                caption=caption,
+                parse_mode="Markdown",
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                caption,
+                parse_mode="Markdown",
+            )
 
     bot.send_message(
         chat_id,
-        "\n".join(lines),
+        "Это все товары, подходящие к этой марке и модели.",
         reply_markup=back_keyboard(),
     )
 

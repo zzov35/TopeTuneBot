@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from typing import List
 from sqlalchemy import (
     create_engine,
