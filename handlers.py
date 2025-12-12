@@ -47,7 +47,7 @@ def handle_menu_callback(call):
     step = user_state.get(chat_id, {}).get("step")
 
     # Лог, чтобы видеть, что приходит от кнопок
-    print(f"[CALLBACK] chat={chat_id}, data={data}")
+    # print(f"[CALLBACK] chat={chat_id}, data={data}")
 
     # ----- назад к выбору бренда (пользователь) ----- #
     if data == "back_brands":
